@@ -1,36 +1,19 @@
-import rad2deg from '../utils/rad2deg';
 import eventUtil from '../utils/eventUtil';
 import isTouch from '../utils/isTouch';
 import { styleName, evtType, TOUCH_EVENT,
-    EVENT_TYPE } from '../constants';
+    EVENT_TYPE, MOVING_DIRECTION } from '../constants';
 import preventDefaultException from '../utils/preventDefaultException';
 import getNow from '../utils/getNow';
 import { ease } from '../utils/ease';
 import raf from '../utils/raf';
+import delta2deg from '../helpers/delta2deg';
+import momentum from '../helpers/momentum';
 // import getStyle from '../utils/getStyle';
 /**
  * 核心模块
  * @param {Wheel} Wheel Wheel构造方法
  */
 export function coreModule (Wheel) {
-    /**
-     * 计算每个滚轮项的角度
-     * @param {Number} c 滚轮项的宽度
-     * @returns {Number} 返回每个item项的角度
-     */
-    Wheel.prototype._calcAngle = function (c) {
-        const _that = this;
-        let _a = parseFloat(_that._r);
-        let _b = _a;
-        c = Math.abs(c);
-        let _intDeg = parseInt((c / _that._d)) * 180;
-        c = c % _that._d;
-        const _cosX = (_a * _a + _b * _b - c * c) / (2 * _a * _b);
-        const _aCosX = Math.acos(_cosX);
-        const _deg = rad2deg(_aCosX);
-        return _intDeg + _deg;
-    }
-
     /**
      * 初始化事件
      */
@@ -141,7 +124,7 @@ export function coreModule (Wheel) {
             });
             _that.moved = true;
         }
-        _that._scrollTo(_that._delta2deg(_delta));
+        _that._scrollTo(delta2deg(_that._r, _delta, _that._angle, _that._beginExceed, _that._endExceed));
         const _timestamp = getNow();
         if (_timestamp - _that.startTime > _options.momentumLimitTime) {
             _that.momentumLimitTime = _timestamp;
@@ -172,6 +155,30 @@ export function coreModule (Wheel) {
         if (_that._resetPos(_options.bounceTime, ease.bounce)) {
             return;
         }
+
+        let _endTime = getNow();
+        const _curPos = _that._getPos(evt);
+        const _delta = _curPos - _that.absStartPos;
+        const _direction = _options.direction || 'vertical';
+        if (_direction === 'horizontal') {
+            _that.movingDirection = _delta > 0 ? MOVING_DIRECTION.RIGHT : (_delta < 0 ? MOVING_DIRECTION.left : 0);
+        } else {
+            _that.movingDirection = _delta > 0 ? MOVING_DIRECTION.BOTTOM : (_delta < 0 ? MOVING_DIRECTION.TOP : 0);
+        }
+        let _duration = _endTime - _that.startTime;
+        let _absDist = Math.abs(_curPos - _that.startPos);
+        let _newAngle = _that._angle;
+        let _time = 0;
+        if (_options.momentum && _duration < _options.momentumLimitTime &&
+            _absDist > _options.momentumLimitDistance) {
+            let _momentum = momentum(_that.startPos, _curPos, _duration, _that._r, _that._angle, _that._beginExceed, _that._endExceed, _options);
+            _newAngle = _momentum.angle;
+            _time = _momentum.duration;
+        }
+        if (_newAngle !== _that._angle) {
+            console.log('_newAngle--->', _newAngle);
+            _that._scrollTo(_newAngle, _time, ease.swipe);
+        }
     }
 
     /**
@@ -191,11 +198,16 @@ export function coreModule (Wheel) {
         if (_options.useTransition) {
             _cancelAnimationFrame(_that.probeTimer);
             _that.isInTransition = false;
+            _that._setTransition(0, null);
         } else {
             _that.isAnimating = false;
             _cancelAnimationFrame(_that.animateTimer);
         }
-        _that._setTransition(0, null);
+        if (!_that._resetPos(_options.bounceTime, ease.bounce)) {
+            _that.trigger(EVENT_TYPE.SCROLL_END, {
+                index: _that._getSelectedIndex()
+            });
+        }
     }
 
     /**
@@ -207,17 +219,22 @@ export function coreModule (Wheel) {
     Wheel.prototype._resetPos = function (time, easing) {
         const _that = this;
         let _angle = _that._angle;
+        let _res = false;
         if (_angle < _that._beginAngle) {
            _angle = _that._beginAngle; 
+           _res = true;
         } else if(_angle > _that._endAngle) {
             _angle = _that._endAngle;
+            _res = true;
+        } else {
+            let index = parseInt(_angle / _that._itemAngle);
+            _angle = index * _that._itemAngle;
         }
 
-        if (_angle === _that._angle) {
-            return false;
+        if (_angle !== _that._angle) {
+            _that._scrollTo(_angle, time, easing);
         }
-        _that._scrollTo(_angle, time, easing);
-        return true;
+        return _res;
     }
 
     /**
@@ -251,6 +268,7 @@ export function coreModule (Wheel) {
     Wheel.prototype._animate = function (angle, time, easing) {
         const _that = this;
         time = time || 0;
+        let _startAngle = _that._angle;
         let _startTime = getNow();
         let _destTime = _startTime + time;
         const _caf = raf.cancelAnimationFrame;
@@ -265,7 +283,7 @@ export function coreModule (Wheel) {
             }
 
             _nowTime = (_nowTime - _startTime) / time;
-            let _newAngle = _that._angle + easing(_nowTime) * (angle - _that._angle);
+            let _newAngle = _startAngle + easing(_nowTime) * (angle - _startAngle);
             _that._translateTo(_newAngle);
             if (_that.isAnimating) {
                 _that.animateTimer = _raf(_step);
@@ -365,23 +383,6 @@ export function coreModule (Wheel) {
     }
 
     /**
-     * 将滑动距离转换为角度
-     * @param {Number} delta 距离
-     * @returns {Number} 返回角度
-     */
-    Wheel.prototype._delta2deg = function (delta) {
-        const _that = this;
-        let _deltaRange = _that._calcAngle(delta);
-        let _newAngle = delta > 0 ? _that._angle - _deltaRange : _that._angle + _deltaRange;
-        if (_newAngle < _that._beginExceed) {
-            _newAngle = _that._beginExceed;
-        } else if (_newAngle > _that._endExceed) {
-            _newAngle = _that._endExceed;
-        }
-        return _newAngle;
-    }
-
-    /**
      * 获取当前的索引
      * @param {Number} angle 当前角度
      * @returns {Number} 返回当前的索引
@@ -412,7 +413,7 @@ export function coreModule (Wheel) {
         const _that = this;
         const _options = _that._options;
         evt = eventUtil.getEvent(evt);
-        const _point = evt.touches ? evt.touches[0] : evt;
+        const _point = evt.changedTouches ? evt.changedTouches[0] : evt;
         const _direction = _options.direction || 'vertical';
         let _pageAxes = _direction === 'horizontal' ? 'pageX' : 'pageY';
         return _point[_pageAxes];

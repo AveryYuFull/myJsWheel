@@ -1,7 +1,7 @@
 import {extend} from '../utils/extend';
 import { DEFAULT_CONFIG, DEFAULT_ITEM_HEIGHT, DEFAULT_ITEM_WIDTH,
     DEFAULT_MAX_EXCEED, VISIBLE_RANGE } from '../constants';
-
+import calcAngle from '../helpers/calcAngle';
 /**
  * 初始化模块
  * @param {Wheel} Wheel Wheel构造方法
@@ -36,7 +36,7 @@ export function initModule (Wheel) {
         const _wheelItem = _wheelItems && _wheelItems[0];
         _that._itemSize = _options['item' + _sizeParams] || (_wheelItem && _wheelItem['offset' + _sizeParams]) || _defaultSize;
         _that._d = _that._r * 2;
-        _that._itemAngle = parseInt(_that._calcAngle(_that._itemSize * 0.8));
+        _that._itemAngle = parseInt(calcAngle(_that._r, _that._itemSize * 0.8));
 
         _that._beginAngle = 0;
         _that._angle = _that._beginAngle;

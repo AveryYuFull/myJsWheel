@@ -25,7 +25,10 @@ export const DEFAULT_CONFIG = {
     momentumLimitTime: 300, // 只有在屏幕快速滑动的时间小于momentumLimitTime才开启momentum动画
     momentumLimitDistance: 15, // 只有在屏幕快速滑动的距离大于momentumLimitDistance才开启momentum动画
     useTransition: false, // 是否使用transition
-    bounceTime: 700 // 回弹动画时长
+    bounceTime: 70, // 回弹动画时长
+    deceleration: 0.001, // 减速度
+    swipeTime: 250, // momentum动画时长
+    swipeBounceTime: 50 // momentum动画回弹时长
 }
 
 /**
@@ -102,5 +105,6 @@ export const EVENT_TYPE = {
     BEFORE_SCROLL_START: 'beforeScrollStart',
     SCROLL_START: 'scrollStart',
     SCROLL: 'scroll',
-    TOUCH_END: 'touchEnd'
+    TOUCH_END: 'touchEnd',
+    SCROLL_END: 'scrollEnd'
 };

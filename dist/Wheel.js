@@ -146,7 +146,10 @@ var DEFAULT_CONFIG = {
   momentumLimitTime: 300, // 只有在屏幕快速滑动的时间小于momentumLimitTime才开启momentum动画
   momentumLimitDistance: 15, // 只有在屏幕快速滑动的距离大于momentumLimitDistance才开启momentum动画
   useTransition: false, // 是否使用transition
-  bounceTime: 700 // 回弹动画时长
+  bounceTime: 70, // 回弹动画时长
+  deceleration: 0.001, // 减速度
+  swipeTime: 250, // momentum动画时长
+  swipeBounceTime: 50 // momentum动画回弹时长
 
 
   /**
@@ -208,7 +211,12 @@ var evtType = {
 /**
  * 移动方向
  */
-
+var MOVING_DIRECTION = {
+  TOP: 'top',
+  BOTTOM: 'bottom',
+  LEFT: 'left',
+  RIGHT: 'right'
+};
 
 /**
  * 事件类型
@@ -217,8 +225,37 @@ var EVENT_TYPE = {
   BEFORE_SCROLL_START: 'beforeScrollStart',
   SCROLL_START: 'scrollStart',
   SCROLL: 'scroll',
-  TOUCH_END: 'touchEnd'
+  TOUCH_END: 'touchEnd',
+  SCROLL_END: 'scrollEnd'
 };
+
+/**
+ * 弧度转换成角度
+ * @param {Number} rad 弧度
+ * @returns {Number} 角度
+ */
+function rad2deg(rad) {
+  return rad * 180 / Math.PI;
+}
+
+/**
+ * 计算夹角
+ * @param {Number} r 半径
+ * @param {Number} c 第三条边的长度
+ * @returns {Number} 返回半径和c这条边的夹角
+ */
+function calcAngle(r, c) {
+    var _a = parseFloat(r);
+    var _b = _a;
+    c = Math.abs(c);
+    var _d = r * 2;
+    var _intDeg = parseInt(c / _d) * 180;
+    c = c % _d;
+    var _cosX = (_a * _a + _b * _b - c * c) / (2 * _a * _b);
+    var _aCosX = Math.acos(_cosX);
+    var _deg = rad2deg(_aCosX);
+    return _intDeg + _deg;
+}
 
 /**
  * 初始化模块
@@ -254,7 +291,7 @@ function initModule(Wheel) {
         var _wheelItem = _wheelItems && _wheelItems[0];
         _that._itemSize = _options['item' + _sizeParams] || _wheelItem && _wheelItem['offset' + _sizeParams] || _defaultSize;
         _that._d = _that._r * 2;
-        _that._itemAngle = parseInt(_that._calcAngle(_that._itemSize * 0.8));
+        _that._itemAngle = parseInt(calcAngle(_that._r, _that._itemSize * 0.8));
 
         _that._beginAngle = 0;
         _that._angle = _that._beginAngle;
@@ -290,15 +327,6 @@ function initModule(Wheel) {
         var _that = this;
         _that._options = extend({}, DEFAULT_CONFIG, options);
     };
-}
-
-/**
- * 弧度转换成角度
- * @param {Number} rad 弧度
- * @returns {Number} 角度
- */
-function rad2deg(rad) {
-  return rad * 180 / Math.PI;
 }
 
 /**
@@ -584,30 +612,59 @@ var raf = {
     cancelAnimationFrame: window.cancelAnimationFrame
 };
 
+/**
+ * 将滑动距离转换为角度
+ * @param {Number} r 半径
+ * @param {Number} delta 距离
+ * @param {Number} angle 当前的角度
+ * @param {Number} lowMargin 最小范围
+ * @param {Number} upMargin 最大边界
+ * @returns {Number} 返回角度
+ */
+function delta2deg(r, delta, angle, lowMargin, upMargin) {
+    var _deltaRange = calcAngle(r, delta);
+    var _newAngle = delta > 0 ? angle - _deltaRange : angle + _deltaRange;
+    if (_newAngle < lowMargin) {
+        _newAngle = lowMargin;
+    } else if (_newAngle > upMargin) {
+        _newAngle = upMargin;
+    }
+    return _newAngle;
+}
+
+/**
+ * 开启动量计算
+ * @param {Number} startPos 开始位置
+ * @param {Number} curPos 当前位置
+ * @param {Number} time 时间间隔
+ * @param {Number} r 半径
+ * @param {Number} angle 当前角度
+ * @param {Number} lowMargin 最小距离
+ * @param {Number} upMargin  最大距离
+ * @param {Object} options 可选参数
+ * @returns {Object} 返回距离
+ */
+function momentum(startPos, curPos, time, r, angle, lowMargin, upMargin, options) {
+    var _speed = (curPos - startPos) / time;
+    var swipeTime = options.swipeTime,
+        swipeBounceTime = options.swipeBounceTime,
+        deceleration = options.deceleration;
+
+    var _delta = _speed / deceleration;
+    var _duration = swipeTime;
+    var _newAngle = delta2deg(r, _delta, angle, lowMargin, upMargin);
+    return {
+        angle: _newAngle,
+        duration: _duration
+    };
+}
+
 // import getStyle from '../utils/getStyle';
 /**
  * 核心模块
  * @param {Wheel} Wheel Wheel构造方法
  */
 function coreModule(Wheel) {
-    /**
-     * 计算每个滚轮项的角度
-     * @param {Number} c 滚轮项的宽度
-     * @returns {Number} 返回每个item项的角度
-     */
-    Wheel.prototype._calcAngle = function (c) {
-        var _that = this;
-        var _a = parseFloat(_that._r);
-        var _b = _a;
-        c = Math.abs(c);
-        var _intDeg = parseInt(c / _that._d) * 180;
-        c = c % _that._d;
-        var _cosX = (_a * _a + _b * _b - c * c) / (2 * _a * _b);
-        var _aCosX = Math.acos(_cosX);
-        var _deg = rad2deg(_aCosX);
-        return _intDeg + _deg;
-    };
-
     /**
      * 初始化事件
      */
@@ -718,7 +775,7 @@ function coreModule(Wheel) {
             });
             _that.moved = true;
         }
-        _that._scrollTo(_that._delta2deg(_delta));
+        _that._scrollTo(delta2deg(_that._r, _delta, _that._angle, _that._beginExceed, _that._endExceed));
         var _timestamp = getNow$1();
         if (_timestamp - _that.startTime > _options.momentumLimitTime) {
             _that.momentumLimitTime = _timestamp;
@@ -749,6 +806,29 @@ function coreModule(Wheel) {
         if (_that._resetPos(_options.bounceTime, ease.bounce)) {
             return;
         }
+
+        var _endTime = getNow$1();
+        var _curPos = _that._getPos(evt);
+        var _delta = _curPos - _that.absStartPos;
+        var _direction = _options.direction || 'vertical';
+        if (_direction === 'horizontal') {
+            _that.movingDirection = _delta > 0 ? MOVING_DIRECTION.RIGHT : _delta < 0 ? MOVING_DIRECTION.left : 0;
+        } else {
+            _that.movingDirection = _delta > 0 ? MOVING_DIRECTION.BOTTOM : _delta < 0 ? MOVING_DIRECTION.TOP : 0;
+        }
+        var _duration = _endTime - _that.startTime;
+        var _absDist = Math.abs(_curPos - _that.startPos);
+        var _newAngle = _that._angle;
+        var _time = 0;
+        if (_options.momentum && _duration < _options.momentumLimitTime && _absDist > _options.momentumLimitDistance) {
+            var _momentum = momentum(_that.startPos, _curPos, _duration, _that._r, _that._angle, _that._beginExceed, _that._endExceed, _options);
+            _newAngle = _momentum.angle;
+            _time = _momentum.duration;
+        }
+        if (_newAngle !== _that._angle) {
+            console.log('_newAngle--->', _newAngle);
+            _that._scrollTo(_newAngle, _time, ease.swipe);
+        }
     };
 
     /**
@@ -767,11 +847,16 @@ function coreModule(Wheel) {
         if (_options.useTransition) {
             _cancelAnimationFrame(_that.probeTimer);
             _that.isInTransition = false;
+            _that._setTransition(0, null);
         } else {
             _that.isAnimating = false;
             _cancelAnimationFrame(_that.animateTimer);
         }
-        _that._setTransition(0, null);
+        if (!_that._resetPos(_options.bounceTime, ease.bounce)) {
+            _that.trigger(EVENT_TYPE.SCROLL_END, {
+                index: _that._getSelectedIndex()
+            });
+        }
     };
 
     /**
@@ -783,17 +868,22 @@ function coreModule(Wheel) {
     Wheel.prototype._resetPos = function (time, easing) {
         var _that = this;
         var _angle = _that._angle;
+        var _res = false;
         if (_angle < _that._beginAngle) {
             _angle = _that._beginAngle;
+            _res = true;
         } else if (_angle > _that._endAngle) {
             _angle = _that._endAngle;
+            _res = true;
+        } else {
+            var index = parseInt(_angle / _that._itemAngle);
+            _angle = index * _that._itemAngle;
         }
 
-        if (_angle === _that._angle) {
-            return false;
+        if (_angle !== _that._angle) {
+            _that._scrollTo(_angle, time, easing);
         }
-        _that._scrollTo(_angle, time, easing);
-        return true;
+        return _res;
     };
 
     /**
@@ -827,6 +917,7 @@ function coreModule(Wheel) {
     Wheel.prototype._animate = function (angle, time, easing) {
         var _that = this;
         time = time || 0;
+        var _startAngle = _that._angle;
         var _startTime = getNow$1();
         var _destTime = _startTime + time;
         var _caf = raf.cancelAnimationFrame;
@@ -841,8 +932,9 @@ function coreModule(Wheel) {
             }
 
             _nowTime = (_nowTime - _startTime) / time;
-            var _newAngle = _that._angle + easing(_nowTime) * (angle - _that._angle);
+            var _newAngle = _startAngle + easing(_nowTime) * (angle - _startAngle);
             _that._translateTo(_newAngle);
+            console.log('_newAngle-->', _newAngle, angle);
             if (_that.isAnimating) {
                 _that.animateTimer = _raf(_step);
             }
@@ -941,23 +1033,6 @@ function coreModule(Wheel) {
     };
 
     /**
-     * 将滑动距离转换为角度
-     * @param {Number} delta 距离
-     * @returns {Number} 返回角度
-     */
-    Wheel.prototype._delta2deg = function (delta) {
-        var _that = this;
-        var _deltaRange = _that._calcAngle(delta);
-        var _newAngle = delta > 0 ? _that._angle - _deltaRange : _that._angle + _deltaRange;
-        if (_newAngle < _that._beginExceed) {
-            _newAngle = _that._beginExceed;
-        } else if (_newAngle > _that._endExceed) {
-            _newAngle = _that._endExceed;
-        }
-        return _newAngle;
-    };
-
-    /**
      * 获取当前的索引
      * @param {Number} angle 当前角度
      * @returns {Number} 返回当前的索引
@@ -988,7 +1063,7 @@ function coreModule(Wheel) {
         var _that = this;
         var _options = _that._options;
         evt = eventUtil.getEvent(evt);
-        var _point = evt.touches ? evt.touches[0] : evt;
+        var _point = evt.changedTouches ? evt.changedTouches[0] : evt;
         var _direction = _options.direction || 'vertical';
         var _pageAxes = _direction === 'horizontal' ? 'pageX' : 'pageY';
         return _point[_pageAxes];
