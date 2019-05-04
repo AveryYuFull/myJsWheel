@@ -24,7 +24,7 @@ export const DEFAULT_CONFIG = {
     momentum: true, // 是否开启momentum动画
     momentumLimitTime: 300, // 只有在屏幕快速滑动的时间小于momentumLimitTime才开启momentum动画
     momentumLimitDistance: 15, // 只有在屏幕快速滑动的距离大于momentumLimitDistance才开启momentum动画
-    useTransition: false, // 是否使用transition
+    useTransition: true, // 是否使用transition
     bounceTime: 70, // 回弹动画时长
     deceleration: 0.001, // 减速度
     swipeTime: 250, // momentum动画时长
